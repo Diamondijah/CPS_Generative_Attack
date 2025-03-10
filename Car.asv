@@ -1,0 +1,97 @@
+classdef Car<handle
+    
+    properties
+        states; % [x,y,phi,velocity]
+        augmented_states;
+        control_inputs; %[steering_angle, acceleration]
+        
+        % Geometry of the car
+        track=2057/100; %meter
+        wheel_base=2665/100; %meter
+        wheel_diameter=66.294/10;
+        wheel_width=25.908/10;
+        
+        % Time step for the simulation
+        ts=0.1;
+        
+        % Model limits
+        steering_angle_limit = deg2rad(33.75);
+        max_velocity = 98.3488; % m/s
+        
+        % PID Errors
+        old_cte;
+        cte_intergral;
+        
+        % Attack flag
+        attack_enabled = false;
+    end
+    
+    methods
+        %% Constructor
+        function obj=Car(states,control_inputs)
+           
+            if (states(4) > obj.max_velocity)
+                states(4)= obj.max_velocity;
+            end
+            
+            obj.states=states;
+           
+            control_inputs(1) = atan2(sin(control_inputs(1)),cos(control_inputs(1)));
+            
+            if (control_inputs(1) > obj.steering_angle_limit)
+                control_inputs(1) = obj.steering_angle_limit; 
+            elseif (control_inputs(1) < -obj.steering_angle_limit)
+                control_inputs(1) = -obj.steering_angle_limit;
+            end
+           
+            obj.control_inputs=control_inputs;
+            obj.old_cte = 0;
+            obj.cte_intergral = 0;
+        end
+ 
+        %% Apply attack on sensors
+        function obj = apply_attack(obj)
+            if obj.attack_enabled
+                noise_intensity = 10; % Intensity of the attack
+                obj.states(1) = obj.states(1) + noise_intensity * (rand - 0.5);
+                obj.states(2) = obj.states(2) + noise_intensity * (rand - 0.5);
+            end
+        end
+
+        %% Update state function
+        function obj=update_state(obj)
+            obj.apply_attack(); % Apply attack before updating state
+            
+            [x,y,phi,v] = obj.state_unpack;
+            [si,acc] = obj.control_inputs_unpack;
+            
+            x_next = x + v*cos(phi)*obj.ts;
+            y_next = y + v*sin(phi)*obj.ts;
+            phi_next = phi + v/(obj.wheel_base)*si*obj.ts;
+            v_next = v + acc*obj.ts;
+            
+            if(v_next > obj.max_velocity)
+                v_next = obj.max_velocity;
+            end
+            
+            obj.states=[x_next y_next phi_next v_next];
+        end
+        
+        %% PID Controller
+        function PID_Controller(obj,cte)
+            kp = 0.02;
+            kd = 0.25;
+            ki = 0.00005;
+           
+            dcte = cte - obj.old_cte;
+            obj.cte_intergral = obj.cte_intergral + cte;
+            obj.old_cte = cte; 
+           
+            steering = kp * cte + kd * dcte + ki * obj.cte_intergral;
+            [~,a] = obj.control_inputs_unpack;
+            control_signal = [steering,a];
+           
+            obj.update_input(control_signal);
+        end
+    end
+end
